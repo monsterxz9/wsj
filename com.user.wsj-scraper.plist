@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.wsj-scraper</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ken/code/wsj/venv/bin/python3</string>
+        <string>/Users/ken/code/wsj/run_scraper.py</string>
+        <string>--limit</string>
+        <string>3</string>
+    </array>
+    
+    <!-- 每小时运行一次 -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    
+    <!-- 也可以使用日历触发（每小时的第0分钟） -->
+    <!-- 
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    -->
+    
+    <!-- 工作目录 -->
+    <key>WorkingDirectory</key>
+    <string>/Users/ken/code/wsj</string>
+    
+    <!-- 环境变量 -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ken/code/wsj/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <!-- 如果使用 OpenAI，取消注释并填入 API Key -->
+        <!-- <key>OPENAI_API_KEY</key> -->
+        <!-- <string>sk-your-api-key-here</string> -->
+    </dict>
+    
+    <!-- 日志输出 -->
+    <key>StandardOutPath</key>
+    <string>/Users/ken/code/wsj/logs/scraper.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/ken/code/wsj/logs/scraper.error.log</string>
+    
+    <!-- 运行条件 -->
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <!-- 如果任务崩溃，等待60秒后重试 -->
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    
+    <!-- 保持活跃（如果需要持续运行） -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

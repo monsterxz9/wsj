@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Output files (optional - uncomment to exclude from repo)
+# output/
+
+# Logs
+logs/
+*.log
+
+# Chrome profile
+.wsj_chrome_profile/
+
+# Processed articles history
+wsj_scraper/.processed_articles.json
+
+# Deprecated files
+deprecated/
+
+# Temporary files
+*.tmp
+*.temp
