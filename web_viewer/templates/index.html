@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WSJ Scraper Output</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h1 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        ul { list-style-type: none; padding: 0; }
+        li { margin: 10px 0; }
+        a { text-decoration: none; color: #0066cc; font-size: 1.2em; display: block; padding: 10px; background: #f9f9f9; border-radius: 4px; transition: background 0.2s; }
+        a:hover { background: #eef; }
+        .empty { color: #777; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Daily Archives</h1>
+        {% if dates %}
+            <ul>
+                {% for date in dates %}
+                <li><a href="/{{ date }}">📅 {{ date }}</a></li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="empty">No output directories found.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

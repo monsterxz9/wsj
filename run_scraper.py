@@ -24,7 +24,9 @@ from wsj_scraper.scraper import scrape_wsj_articles, WSJScraper
 from wsj_scraper.translator import translate_articles
 from wsj_scraper.pdf_generator import generate_pdf, save_json
 from wsj_scraper.config import OUTPUT_DIR, MAX_ARTICLES_PER_RUN
+from wsj_scraper.utils import setup_logging
 
+logger = setup_logging("Main")
 
 async def run_scraper(
     headless: bool = True,
@@ -34,19 +36,11 @@ async def run_scraper(
 ):
     """
     运行完整的抓取-翻译-生成流程
-    
-    Args:
-        headless: 是否使用无头模式
-        limit: 最大抓取文章数
-        save_json_file: 是否同时保存 JSON 文件
-        url: 指定单篇文章 URL（可选）
     """
-    print(f"\n{'='*60}")
-    print(f"WSJ Scraper - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*60}\n")
+    logger.info(f"{'='*30} Start {'='*30}")
     
     # 1. 抓取文章
-    print("[Step 1/3] Scraping articles...")
+    logger.info("[Step 1/3] Scraping articles...")
     
     if url:
         # 抓取指定 URL
@@ -58,23 +52,23 @@ async def run_scraper(
         articles = await scrape_wsj_articles(headless=headless, limit=limit)
     
     if not articles:
-        print("[Info] No new articles to process")
+        logger.info("No new articles to process")
         return []
     
-    print(f"[Info] Scraped {len(articles)} articles\n")
+    logger.info(f"Scraped {len(articles)} articles")
     
     # 2. 翻译文章
-    print("[Step 2/3] Translating articles...")
+    logger.info("[Step 2/3] Translating articles...")
     translated = await translate_articles(articles)
     
     if not translated:
-        print("[Error] Translation failed")
+        logger.error("Translation failed")
         return []
     
-    print(f"[Info] Translated {len(translated)} articles\n")
+    logger.info(f"Translated {len(translated)} articles")
     
     # 3. 生成 PDF
-    print("[Step 3/3] Generating PDFs...")
+    logger.info("[Step 3/3] Generating PDFs...")
     output_files = []
     
     for article in translated:
@@ -85,13 +79,12 @@ async def run_scraper(
             if save_json_file:
                 save_json(article)
         except Exception as e:
-            print(f"[Error] Failed to generate PDF: {e}")
+            logger.error(f"Failed to generate PDF: {e}")
     
     # 完成
-    print(f"\n{'='*60}")
-    print(f"Completed! Generated {len(output_files)} PDFs")
-    print(f"Output directory: {OUTPUT_DIR}")
-    print(f"{'='*60}\n")
+    logger.info(f"Completed! Generated {len(output_files)} PDFs")
+    logger.info(f"Output directory: {OUTPUT_DIR}")
+    logger.info(f"{'='*30} End {'='*30}")
     
     return output_files
 

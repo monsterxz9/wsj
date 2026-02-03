@@ -99,6 +99,12 @@ output/
     └── json/  # Raw translation data
 ```
 
+### 4. Process Custom Transcripts
+You can also process long text files (like interview transcripts). Example for Naval Ravikant's full transcript:
+```bash
+python naval_study.py
+```
+
 ## Project Structure
 
 ```

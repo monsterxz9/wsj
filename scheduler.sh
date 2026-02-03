@@ -9,18 +9,39 @@ case "$1" in
     install|start)
         echo "安装定时任务..."
         
+        PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+        PYTHON_PATH="$PROJECT_ROOT/venv/bin/python3"
+        PLIST_TEMPLATE="$PROJECT_ROOT/com.user.wsj-scraper.plist.template"
+        PLIST_GENERATED="$PROJECT_ROOT/$PLIST_NAME"
+        
+        if [ ! -f "$PYTHON_PATH" ]; then
+            echo "错误: 未找到 Python 虚拟环境: $PYTHON_PATH"
+            echo "请先创建虚拟环境: python3 -m venv venv"
+            exit 1
+        fi
+        
+        if [ ! -f "$PLIST_TEMPLATE" ]; then
+            echo "错误: 未找到模板文件: $PLIST_TEMPLATE"
+            exit 1
+        fi
+        
+        echo "生成配置文件..."
+        sed -e "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" \
+            -e "s|{{PYTHON_PATH}}|$PYTHON_PATH|g" \
+            "$PLIST_TEMPLATE" > "$PLIST_GENERATED"
+        
         # 停止现有任务
         launchctl unload "$PLIST_DST" 2>/dev/null || true
         
         # 复制 plist 文件
-        cp "$PLIST_SRC" "$PLIST_DST"
+        cp "$PLIST_GENERATED" "$PLIST_DST"
         
         # 加载任务
         launchctl load "$PLIST_DST"
         
         echo "✓ 定时任务已安装"
         echo "  任务将每小时自动运行"
-        echo "  日志位置: $(dirname "$0")/logs/"
+        echo "  日志位置: $PROJECT_ROOT/logs/"
         ;;
         
     stop|uninstall)

@@ -23,8 +23,8 @@ ENV/
 .AppleDouble
 .LSOverride
 
-# Output files (optional - uncomment to exclude from repo)
-# output/
+# Output files
+output/
 
 # Logs
 logs/
@@ -32,6 +32,13 @@ logs/
 
 # Chrome profile
 .wsj_chrome_profile/
+
+# Extensions
+bypass-paywalls-chrome-clean-master/
+extensions/
+
+# Debug files
+homepage_debug.png
 
 # Processed articles history
 wsj_scraper/.processed_articles.json
@@ -42,3 +49,4 @@ deprecated/
 # Temporary files
 *.tmp
 *.temp
+output/

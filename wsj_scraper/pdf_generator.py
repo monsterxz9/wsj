@@ -15,18 +15,27 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.units import inch
 
-from .config import CHINESE_FONT_PATH, ARIAL_UNICODE_PATH, OUTPUT_DIR
+from typing import Optional
+from .config import CHINESE_FONT_PATH, ARIAL_UNICODE_PATH, OUTPUT_DIR, PARAGRAPH_SPLIT_THRESHOLD
 from .translator import TranslatedArticle
+from .utils import setup_logging
 
+_FONTS_REGISTERED = False
+logger = setup_logging("PDFGenerator")
 
 def _register_fonts():
-    """注册字体"""
+    """注册字体 - 仅注册一次"""
+    global _FONTS_REGISTERED
+    if _FONTS_REGISTERED:
+        return True
+        
     try:
         pdfmetrics.registerFont(TTFont('Songti', CHINESE_FONT_PATH, subfontIndex=0))
         pdfmetrics.registerFont(TTFont('ArialUnicode', ARIAL_UNICODE_PATH))
+        _FONTS_REGISTERED = True
         return True
     except Exception as e:
-        print(f"[PDF] Error loading fonts: {e}")
+        logger.error(f"Error loading fonts: {e}")
         return False
 
 
@@ -34,7 +43,8 @@ def _get_styles():
     """获取所有样式定义"""
     styles = getSampleStyleSheet()
     
-    return {
+    # Base styles
+    styles_dict = {
         'header': ParagraphStyle(
             'Header', 
             fontName='Times-Bold', 
@@ -50,6 +60,18 @@ def _get_styles():
             spaceAfter=20, 
             textColor=colors.gray
         ),
+    }
+    
+    # Article content styles
+    styles_dict.update(_get_article_styles(styles))
+    
+    # Vocabulary styles
+    styles_dict.update(_get_vocab_styles(styles))
+    
+    return styles_dict
+
+def _get_article_styles(styles):
+    return {
         'title': ParagraphStyle(
             'WSJ_Title',
             parent=styles['Heading1'],
@@ -120,6 +142,10 @@ def _get_styles():
             spaceBefore=3,
             spaceAfter=3
         ),
+    }
+
+def _get_vocab_styles(styles):
+    return {
         'vocab_header': ParagraphStyle(
             'Vocab_Header',
             parent=styles['Heading1'],
@@ -214,21 +240,19 @@ def _get_output_dir(date: str, subdir: str) -> Path:
     return target_dir
 
 
-def generate_pdf(article: TranslatedArticle, output_path: Path = None) -> Path:
+def generate_pdf(article: TranslatedArticle, output_path: Optional[Path] = None, sequential: bool = False) -> Path:
     """
     生成 PDF 文件
     
     Args:
         article: 翻译后的文章
-        output_path: 输出路径，默认使用 OUTPUT_DIR/{date}/pdf/
-    
-    Returns:
-        生成的 PDF 文件路径
+        output_path: 输出路径
+        sequential: 是否使用顺序排列（适用于超长段落），否则使用双栏对比
     """
     _register_fonts()
     styles = _get_styles()
     
-    # 生成文件名 (不再包含日期前缀，因为已经在目录中)
+    # ... (filename generation)
     safe_title = "".join(c for c in article.title[:50] if c.isalnum() or c in ' -_').strip()
     safe_title = safe_title.replace(' ', '_')
     filename = f"{safe_title}.pdf"
@@ -249,7 +273,7 @@ def generate_pdf(article: TranslatedArticle, output_path: Path = None) -> Path:
     story = []
     
     # Header
-    story.append(Paragraph("THE WALL STREET JOURNAL.", styles['header']))
+    story.append(Paragraph("THE WALL STREET JOURNAL." if "Naval" not in article.title else "NAVAL WISDOM", styles['header']))
     story.append(Paragraph("TOEIC Reading Practice | 托业阅读练习", styles['subheader']))
     
     # Title
@@ -267,27 +291,38 @@ def generate_pdf(article: TranslatedArticle, output_path: Path = None) -> Path:
     
     story.append(Spacer(1, 8))
     
-    # Two-column body
-    col_width = (A4[0] - 70) / 2 - 8
-    table_data = []
-    
-    for p in article.paragraphs:
-        p_en = Paragraph(p['en'], styles['body_en'])
-        p_cn = Paragraph(p['cn'], styles['body_cn'])
-        table_data.append([p_en, p_cn])
-    
-    t = Table(table_data, colWidths=[col_width, col_width])
-    t.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 4),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('LINEAFTER', (0, 0), (0, -1), 0.5, colors.lightgrey),
-    ]))
-    
-    story.append(t)
+    if sequential:
+        # 顺序排列模式
+        for p in article.paragraphs:
+            story.append(Paragraph(p['en'], styles['body_en']))
+            story.append(Paragraph(p['cn'], styles['body_cn']))
+            story.append(Spacer(1, 10))
+    else:
+        # Two-column body (使用独立的 Table 确保分页)
+        col_width = (A4[0] - 70) / 2 - 8
+        for p in article.paragraphs:
+            p_en = Paragraph(p['en'], styles['body_en'])
+            p_cn = Paragraph(p['cn'], styles['body_cn'])
+            
+            # 检查段落是否超长
+            if len(p['en']) > PARAGRAPH_SPLIT_THRESHOLD:
+                # 对超长段落，自动降级为顺序排列
+                story.append(Paragraph(p['en'], styles['body_en']))
+                story.append(Paragraph(p['cn'], styles['body_cn']))
+                story.append(Spacer(1, 10))
+            else:
+                t = Table([[p_en, p_cn]], colWidths=[col_width, col_width])
+                t.setStyle(TableStyle([
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                    ('LINEAFTER', (0, 0), (0, -1), 0.5, colors.lightgrey),
+                ]))
+                story.append(t)
     
     # Vocabulary section
+
     if article.vocabulary:
         story.append(PageBreak())
         story.append(Paragraph("TOEIC Vocabulary Study", styles['vocab_header']))
@@ -307,12 +342,12 @@ def generate_pdf(article: TranslatedArticle, output_path: Path = None) -> Path:
     
     # Build PDF
     doc.build(story)
-    print(f"[PDF] Generated: {output_path}")
+    logger.info(f"Generated PDF: {output_path}")
     
     return output_path
 
 
-def save_json(article: TranslatedArticle, output_path: Path = None) -> Path:
+def save_json(article: TranslatedArticle, output_path: Optional[Path] = None) -> Path:
     """保存 JSON 格式数据"""
     safe_title = "".join(c for c in article.title[:50] if c.isalnum() or c in ' -_').strip()
     safe_title = safe_title.replace(' ', '_')
@@ -338,5 +373,5 @@ def save_json(article: TranslatedArticle, output_path: Path = None) -> Path:
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     
-    print(f"[JSON] Saved: {output_path}")
+    logger.info(f"Saved JSON: {output_path}")
     return output_path

@@ -13,6 +13,11 @@ from dataclasses import dataclass, asdict
 import hashlib
 
 from playwright.async_api import async_playwright
+try:
+    from playwright_stealth import stealth_async
+except ImportError:
+    # 兼容本地开发环境如果没有安装 stealth
+    stealth_async = None
 
 from .config import (
     WSJ_HOME_URL,
@@ -21,7 +26,11 @@ from .config import (
     REQUEST_TIMEOUT,
     HISTORY_FILE,
     PROJECT_ROOT,
+    SCROLL_WAIT_TIME,
+    MIN_ARTICLE_LENGTH,
+    LOG_DIR,
 )
+from .utils import setup_logging, minimize_window
 
 
 @dataclass
@@ -47,30 +56,24 @@ class WSJScraper:
     """
     WSJ 文章抓取器
     
-    使用方式：
-    1. 先用以下命令启动 Chrome（开启远程调试端口）：
-       /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222
-    
-    2. 在 Chrome 中确保已安装 Bypass Paywalls Clean 扩展
-    
-    3. 运行脚本，它会连接到你的 Chrome 浏览器
+    连接到已在运行的真实 Google Chrome 浏览器
     """
     
-    CHROME_DEBUG_URL = "http://localhost:9222"
-    
     def __init__(self, headless: bool = True):
-        self.headless = headless  # 此模式下忽略
+        self.headless = headless
         self.browser = None
         self._playwright = None
         self._processed_urls = self._load_history()
+        self.CHROME_DEBUG_URL = "http://localhost:9222"
+        self.logger = setup_logging("Scraper")
     
     def _load_history(self) -> set:
         if HISTORY_FILE.exists():
             try:
                 with open(HISTORY_FILE, 'r') as f:
                     return set(json.load(f).get('urls', []))
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Failed to load history: {e}")
         return set()
     
     def _save_history(self):
@@ -93,61 +96,79 @@ class WSJScraper:
         await self.close()
     
     async def start(self):
-        """连接到已运行的 Chrome 浏览器"""
+        """连接到已运行的 Chrome"""
         self._playwright = await async_playwright().start()
         
         try:
+            # 连接到远程调试端口
             self.browser = await self._playwright.chromium.connect_over_cdp(
                 self.CHROME_DEBUG_URL,
                 timeout=REQUEST_TIMEOUT * 1000,
             )
-            print(f"[Scraper] Connected to Chrome at {self.CHROME_DEBUG_URL}")
-            
-            # 获取现有的 contexts
-            contexts = self.browser.contexts
-            print(f"[Scraper] Found {len(contexts)} browser contexts")
+            self.logger.info(f"Connected to real Chrome at {self.CHROME_DEBUG_URL}")
             
         except Exception as e:
-            print(f"[Scraper] Failed to connect to Chrome: {e}")
-            print("\n请先用以下命令启动 Chrome：")
-            print('  /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222\n')
+            self.logger.error(f"Failed to connect to Chrome: {e}")
             raise
     
     async def close(self):
-        """断开连接（不关闭浏览器）"""
-        # 不关闭浏览器，只是断开连接
+        """断开连接"""
         if self._playwright:
             await self._playwright.stop()
-        print("[Scraper] Disconnected from Chrome")
+        self.logger.info("Disconnected from Chrome")
     
     async def get_homepage_articles(self, limit: int = MAX_ARTICLES_PER_RUN) -> list[str]:
         """从 WSJ 首页获取文章链接"""
-        # 使用现有的 context
+        if not self.browser:
+            raise RuntimeError("Browser not connected")
+            
         context = self.browser.contexts[0] if self.browser.contexts else await self.browser.new_context()
         page = await context.new_page()
         
-        # 最小化窗口，防止抢焦点
-        try:
-            cdp = await page.context.new_cdp_session(page)
-            await cdp.send("Browser.setWindowBounds", {
-                "windowId": 1,
-                "bounds": {"windowState": "minimized"}
-            })
-        except:
-            pass
+        # 应用 Stealth
+        if stealth_async:
+            await stealth_async(page)
+
+        # 最小化窗口
+        await minimize_window(page)
         
         articles = []
         
         try:
-            print(f"[Scraper] Fetching WSJ homepage...")
-            await page.goto(WSJ_HOME_URL, wait_until='domcontentloaded')
+            self.logger.info("Fetching WSJ homepage...")
             
-            # 等待页面加载
-            await asyncio.sleep(PAGE_LOAD_WAIT + 3)
+            # 模拟随机等待
+            await asyncio.sleep(random.uniform(1, 3))
+            
+            # 添加 Referer
+            await page.set_extra_http_headers({
+                "Referer": "https://www.google.com/",
+                "Accept-Language": "en-US,en;q=0.9"
+            })
+            
+            # 模拟人类滚动
+            async def human_scroll():
+                for _ in range(random.randint(2, 4)):
+                    await page.mouse.wheel(0, random.randint(300, 600))
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+
+            await page.goto(WSJ_HOME_URL, wait_until='networkidle')
+            await human_scroll()
+            
+            # 等待页面进一步加载
+            await asyncio.sleep(PAGE_LOAD_WAIT)
+            
+            # Debug: 打印标题和截图
+            title = await page.title()
+            self.logger.debug(f"Page Title: {title}")
+            
+            # Save debug screenshot to logs
+            debug_shot = LOG_DIR / f"homepage_{datetime.now():%Y%m%d_%H%M%S}.png"
+            await page.screenshot(path=str(debug_shot), full_page=True)
             
             # 获取所有链接
             links = await page.query_selector_all('a[href]')
-            print(f"[Scraper] Found {len(links)} total links on page")
+            self.logger.info(f"Found {len(links)} total links on page")
             
             seen_urls = set()
             for link in links:
@@ -180,10 +201,10 @@ class WSJScraper:
                 except:
                     continue
             
-            print(f"[Scraper] Found {len(articles)} new articles")
+            self.logger.info(f"Found {len(articles)} new articles")
             
         except Exception as e:
-            print(f"[Scraper] Error fetching homepage: {e}")
+            self.logger.error(f"Error fetching homepage: {e}")
         finally:
             await page.close()
         
@@ -191,25 +212,25 @@ class WSJScraper:
     
     async def scrape_article(self, url: str) -> Optional[Article]:
         """抓取单篇文章内容"""
+        if not self.browser:
+            raise RuntimeError("Browser not connected")
+
         context = self.browser.contexts[0] if self.browser.contexts else await self.browser.new_context()
         page = await context.new_page()
         
-        # 最小化窗口，防止抢焦点
-        try:
-            cdp = await page.context.new_cdp_session(page)
-            await cdp.send("Browser.setWindowBounds", {
-                "windowId": 1,
-                "bounds": {"windowState": "minimized"}
-            })
-        except:
-            pass
+        # 应用 Stealth
+        if stealth_async:
+            await stealth_async(page)
+            
+        # 最小化窗口
+        await minimize_window(page)
         
         try:
-            print(f"[Scraper] Fetching article: {url}")
+            self.logger.info(f"Fetching article: {url}")
             await page.goto(url, wait_until='domcontentloaded')
             
             # 等待内容加载（给 Bypass Paywalls Clean 时间处理）
-            await asyncio.sleep(PAGE_LOAD_WAIT + 2)
+            await asyncio.sleep(PAGE_LOAD_WAIT)
             
             # 提取标题
             title = ""
@@ -244,14 +265,15 @@ class WSJScraper:
                 elems = await page.query_selector_all(sel)
                 for elem in elems:
                     text = (await elem.inner_text()).strip()
-                    if text and len(text) > 20 and not self._is_noise(text):
+                    if text and len(text) > MIN_ARTICLE_LENGTH and not self._is_noise(text):
                         paragraphs.append(text)
                 if paragraphs:
                     break
             
             if not title or not paragraphs:
-                print(f"[Scraper] Failed to extract content")
-                await page.screenshot(path=str(PROJECT_ROOT / "logs" / f"error_{datetime.now().strftime('%H%M%S')}.png"))
+                self.logger.warning(f"Failed to extract content for {url}")
+                error_shot = LOG_DIR / f"error_{datetime.now():%H%M%S}.png"
+                await page.screenshot(path=str(error_shot))
                 return None
             
             self._mark_processed(url)
@@ -266,11 +288,11 @@ class WSJScraper:
                 scraped_at=datetime.now().isoformat(),
             )
             
-            print(f"[Scraper] Success: {title[:50]}...")
+            self.logger.info(f"Success: {title[:50]}...")
             return article
             
         except Exception as e:
-            print(f"[Scraper] Error: {e}")
+            self.logger.error(f"Error scraping article {url}: {e}")
             return None
         finally:
             await page.close()

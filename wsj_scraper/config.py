@@ -32,14 +32,30 @@ REQUEST_TIMEOUT = 30
 # 页面加载等待时间（秒）
 PAGE_LOAD_WAIT = 5
 
-# ==================== AI 翻译配置 ====================
-# 使用 Ollama 本地模型 (免费) 或 OpenAI API
-USE_OLLAMA = False  # 设为 False 使用 OpenAI
-OLLAMA_MODEL = "qwen2.5:14b"  # 或者 "llama3.2" 等
+# ==================== 日志配置 ====================
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_LEVEL = "INFO"
 
-# OpenAI 配置
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-4o-mini"  # 便宜又好用
+# ==================== AI 翻译配置 ====================
+# Google Gemini API 配置
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = "gemini-2.0-flash-exp"
+
+# 批量翻译配置
+TRANSLATION_CHUNK_SIZE = 1  # 每次API调用处理的文章数 (Gemini 2.0 Flash context window很大，可以调大)
+API_RETRY_ATTEMPTS = 3
+API_RETRY_DELAY = 2  # 秒
+
+# ==================== 抓取行为配置 ====================
+# 页面滚动等待时间（秒）- 让内容完全加载
+SCROLL_WAIT_TIME = 2
+
+# 文章内容最小长度（字符）- 过滤掉空文章
+MIN_ARTICLE_LENGTH = 20
+
+# ==================== PDF 生成配置 ====================
+# 段落长度阈值（字符）- 超过此长度会拆分成多列
+PARAGRAPH_SPLIT_THRESHOLD = 2000
 
 # ==================== PDF 配置 ====================
 # 中文字体路径

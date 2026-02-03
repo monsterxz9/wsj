@@ -14,15 +14,14 @@ import httpx
 from .scraper import Article
 
 
-# API 配置
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-4o-mini"
-
-# 优先使用 Gemini
-USE_GEMINI = bool(GEMINI_API_KEY)
+from .config import (
+    GEMINI_API_KEY,
+    GEMINI_MODEL,
+    TRANSLATION_CHUNK_SIZE,
+    API_RETRY_ATTEMPTS,
+    API_RETRY_DELAY
+)
+from .utils import setup_logging
 
 
 @dataclass
@@ -102,7 +101,8 @@ SINGLE_TRANSLATION_PROMPT = '''将以下英文新闻文章翻译成中文，并�
 1. paragraphs_cn 必须有 {para_count} 个元素
 2. vocabulary 必须有 10 个词汇
 3. 翻译要专业准确，符合新闻报道风格
-4. 不要在输出中使用任何 markdown 格式（如 **加粗** 或 *斜体*），保持纯文本'''
+4. 特别注意：如果文章中出现 "Naval" (人名)，请翻译为 "纳瓦尔"，不要翻译成 "海军"
+5. 不要在输出中使用任何 markdown 格式（如 **加粗** 或 *斜体*），保持纯文本'''
 
 
 class AITranslator:
@@ -118,13 +118,10 @@ class AITranslator:
     )
     
     def __init__(self):
-        self.use_gemini = USE_GEMINI
-        if self.use_gemini:
-            print(f"[Translator] Using Gemini: {GEMINI_MODEL}")
-        else:
-            print(f"[Translator] Using OpenAI: {OPENAI_MODEL}")
+        self.logger = setup_logging("Translator")
+        self.logger.info(f"Using Gemini: {GEMINI_MODEL}")
     
-    async def _call_gemini(self, prompt: str, max_retries: int = 10, max_output_tokens: int = 65536) -> dict:
+    async def _call_gemini(self, prompt: str, max_retries: int = API_RETRY_ATTEMPTS, max_output_tokens: int = 65536) -> dict:
         """调用 Google Gemini API - 使用 JSON 模式，带网络异常和 429 重试"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
         
@@ -142,77 +139,61 @@ class AITranslator:
                                 "temperature": 0.2,
                                 "maxOutputTokens": max_output_tokens,
                                 "responseMimeType": "application/json",
-                            }
+                            },
+                            "safetySettings": [
+                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                            ]
                         }
                     )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    text = ""
+                    try:
+                        text = data["candidates"][0]["content"]["parts"][0]["text"]
+                        return json.loads(text)
+                    except json.JSONDecodeError as e:
+                        self.logger.warning(f"JSON decode error: {e}")
+                        return self._parse_json_fallback(text)
+                    except (KeyError, IndexError) as e:
+                        raise Exception(f"Gemini response error: {e}")
+                
+                elif response.status_code == 429:
+                    retry_delay = 60
+                    try:
+                        error_data = response.json()
+                        details = error_data.get("error", {}).get("details", [])
+                        for detail in details:
+                            if "retryDelay" in detail:
+                                delay_str = detail["retryDelay"]
+                                match = re.match(r"(\d+)s?", delay_str)
+                                if match:
+                                    retry_delay = int(match.group(1)) + 5
+                                break
+                    except:
+                        pass
                     
-                    if response.status_code == 200:
-                        data = response.json()
-                        text = ""
-                        try:
-                            text = data["candidates"][0]["content"]["parts"][0]["text"]
-                            return json.loads(text)
-                        except json.JSONDecodeError as e:
-                            print(f"[Translator] JSON decode error: {e}")
-                            return self._parse_json_fallback(text)
-                        except (KeyError, IndexError) as e:
-                            raise Exception(f"Gemini response error: {e}")
-                    
-                    elif response.status_code == 429:
-                        retry_delay = 60
-                        try:
-                            error_data = response.json()
-                            details = error_data.get("error", {}).get("details", [])
-                            for detail in details:
-                                if "retryDelay" in detail:
-                                    delay_str = detail["retryDelay"]
-                                    match = re.match(r"(\d+)s?", delay_str)
-                                    if match:
-                                        retry_delay = int(match.group(1)) + 5
-                                    break
-                        except:
-                            pass
-                        
-                        print(f"[Translator] Rate limit (429). Waiting {retry_delay}s... (retry {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(retry_delay)
-                        continue
-                    
-                    else:
-                        raise Exception(f"Gemini API error: {response.status_code} - {response.text}")
+                    self.logger.warning(f"Rate limit (429). Waiting {retry_delay}s... (retry {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                
+                else:
+                    raise Exception(f"Gemini API error: {response.status_code} - {response.text}")
             
             except self.RETRYABLE_EXCEPTIONS as e:
                 last_exception = e
-                # 指数退避: 15s, 30s, 45s, 60s, 60s...
-                retry_delay = min(15 * (attempt + 1), 60)
-                print(f"[Translator] Network error: {type(e).__name__}. Waiting {retry_delay}s... (retry {attempt + 1}/{max_retries})")
+                # 指数退避: 2s, 4s, 8s...
+                retry_delay = min(API_RETRY_DELAY * (2 ** attempt), 60)
+                self.logger.warning(f"Network error: {type(e).__name__}. Waiting {retry_delay}s... (retry {attempt + 1}/{max_retries})")
                 await asyncio.sleep(retry_delay)
                 continue
         
         if last_exception:
             raise Exception(f"Gemini API failed after {max_retries} retries: {last_exception}")
         raise Exception(f"Gemini API failed after {max_retries} retries")
-    
-    async def _call_openai(self, prompt: str) -> dict:
-        """调用 OpenAI API"""
-        async with httpx.AsyncClient(timeout=180) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": OPENAI_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2,
-                    "response_format": {"type": "json_object"},
-                }
-            )
-            if response.status_code == 200:
-                text = response.json()["choices"][0]["message"]["content"]
-                return json.loads(text)
-            else:
-                raise Exception(f"OpenAI error: {response.text}")
     
     def _parse_json_fallback(self, text: str) -> dict:
         """备用 JSON 解析"""
@@ -235,13 +216,6 @@ class AITranslator:
                 pass
         
         return {"articles": []}
-    
-    async def _call_llm(self, prompt: str, max_output_tokens: int = 65536) -> dict:
-        """统一的 LLM 调用接口"""
-        if self.use_gemini:
-            return await self._call_gemini(prompt, max_output_tokens=max_output_tokens)
-        else:
-            return await self._call_openai(prompt)
     
     def _format_article_for_prompt(self, article: Article, index: int) -> str:
         """格式化单篇文章用于批量提示词"""
@@ -267,7 +241,7 @@ class AITranslator:
         if not articles:
             return []
         
-        print(f"[Translator] Batch translating {len(articles)} articles in ONE API call...")
+        self.logger.info(f"Batch translating {len(articles)} articles in ONE API call...")
         
         # 构建批量提示词
         articles_content = "\n".join([
@@ -285,10 +259,10 @@ class AITranslator:
         estimated_tokens = len(articles) * 5000
         max_output_tokens = min(max(estimated_tokens, 20000), 100000)  # Gemini 2.5 Flash 支持更大输出
         
-        print(f"[Translator] Estimated output tokens: {max_output_tokens}")
+        self.logger.info(f"Estimated output tokens: {max_output_tokens}")
         
         # 调用 API
-        result = await self._call_llm(prompt, max_output_tokens=max_output_tokens)
+        result = await self._call_gemini(prompt, max_output_tokens=max_output_tokens)
         
         # 解析结果
         translated_articles = []
@@ -307,7 +281,7 @@ class AITranslator:
                 article_result = articles_data[i]
             
             if article_result is None:
-                print(f"[Translator] Warning: No translation found for article {i + 1}: {article.title[:30]}...")
+                self.logger.warning(f"Warning: No translation found for article {i + 1}: {article.title[:30]}...")
                 continue
             
             # 组合双语段落
@@ -319,7 +293,7 @@ class AITranslator:
             
             vocab_count = len(article_result.get('vocabulary', []))
             para_translated = sum(1 for p in paragraphs if p.get("cn"))
-            print(f"[Translator] Article {i + 1}: {para_translated}/{len(paragraphs)} paragraphs, {vocab_count} vocab")
+            self.logger.info(f"Article {i + 1}: {para_translated}/{len(paragraphs)} paragraphs, {vocab_count} vocab")
             
             translated_articles.append(TranslatedArticle(
                 title=article.title,
@@ -334,14 +308,14 @@ class AITranslator:
                 date=article.date,
             ))
         
-        print(f"[Translator] Batch complete: {len(translated_articles)}/{len(articles)} articles translated")
+        self.logger.info(f"Batch complete: {len(translated_articles)}/{len(articles)} articles translated")
         return translated_articles
     
     async def translate_article(self, article: Article) -> TranslatedArticle:
         """
         翻译单篇文章（备用方法）
         """
-        print(f"[Translator] Translating single article: {article.title[:50]}...")
+        self.logger.info(f"Translating single article: {article.title[:50]}...")
         
         paragraphs_text = "\n\n".join([
             f"[段落{i+1}] {p}" for i, p in enumerate(article.paragraphs)
@@ -355,7 +329,7 @@ class AITranslator:
             para_count=len(article.paragraphs),
         )
         
-        result = await self._call_llm(prompt)
+        result = await self._call_gemini(prompt)
         
         paragraphs_cn = result.get("paragraphs_cn", [])
         paragraphs = []
@@ -364,7 +338,7 @@ class AITranslator:
             paragraphs.append({"en": en, "cn": cn})
         
         vocab_count = len(result.get('vocabulary', []))
-        print(f"[Translator] Done: {len(paragraphs)} paragraphs, {vocab_count} vocab items")
+        self.logger.info(f"Done: {len(paragraphs)} paragraphs, {vocab_count} vocab items")
         
         return TranslatedArticle(
             title=article.title,
@@ -382,15 +356,39 @@ class AITranslator:
 
 async def translate_articles(articles: list[Article]) -> list[TranslatedArticle]:
     """
-    批量翻译文章 - 使用单次 API 调用
+    批量翻译文章 - 使用分块处理避免 API 输出过大
     """
-    if not GEMINI_API_KEY and not OPENAI_API_KEY:
-        print("[Translator] Error: No API key configured!")
-        print("  Set GEMINI_API_KEY in .env file")
+    logger = setup_logging("TranslatorRunner")
+    
+    if not GEMINI_API_KEY:
+        logger.error("Error: No GEMINI_API_KEY configured!")
+        logger.error("  Set GEMINI_API_KEY in .env file")
         return []
     
     if not articles:
         return []
     
     translator = AITranslator()
-    return await translator.translate_batch(articles)
+    
+    # 将文章分块，确保响应不会因长度被截断
+    chunk_size = TRANSLATION_CHUNK_SIZE
+    all_translated = []
+    
+    for i in range(0, len(articles), chunk_size):
+        chunk = articles[i:i + chunk_size]
+        logger.info(f"Processing chunk {i//chunk_size + 1}/{(len(articles)-1)//chunk_size + 1} ({len(chunk)} articles)")
+        try:
+            translated_chunk = await translator.translate_batch(chunk)
+            all_translated.extend(translated_chunk)
+        except Exception as e:
+            logger.error(f"Error processing chunk: {e}")
+            # 如果批量失败，尝试逐篇翻译
+            logger.info("Falling back to single article translation...")
+            for article in chunk:
+                try:
+                    translated = await translator.translate_article(article)
+                    all_translated.append(translated)
+                except Exception as ex:
+                    logger.error(f"Failed to translate article {article.title}: {ex}")
+        
+    return all_translated
