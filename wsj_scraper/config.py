@@ -27,10 +27,10 @@ WSJ_HOME_URL = "https://www.wsj.com"
 MAX_ARTICLES_PER_RUN = 5
 
 # 请求超时时间（秒）
-REQUEST_TIMEOUT = 30
+REQUEST_TIMEOUT = 60
 
 # 页面加载等待时间（秒）
-PAGE_LOAD_WAIT = 5
+PAGE_LOAD_WAIT = 15
 
 # ==================== 日志配置 ====================
 LOG_DIR = PROJECT_ROOT / "logs"
@@ -39,7 +39,7 @@ LOG_LEVEL = "INFO"
 # ==================== AI 翻译配置 ====================
 # Google Gemini API 配置
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-exp"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 # 批量翻译配置
 TRANSLATION_CHUNK_SIZE = 1  # 每次API调用处理的文章数 (Gemini 2.0 Flash context window很大，可以调大)
@@ -65,3 +65,6 @@ ARIAL_UNICODE_PATH = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 # ==================== 历史记录 ====================
 # 已处理文章的记录文件
 HISTORY_FILE = PROJECT_ROOT / "wsj_scraper" / ".processed_articles.json"
+
+# 未翻译文章的缓存目录
+RAW_DIR = PROJECT_ROOT / "wsj_scraper" / ".raw_cache"

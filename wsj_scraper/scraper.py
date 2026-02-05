@@ -29,6 +29,7 @@ from .config import (
     SCROLL_WAIT_TIME,
     MIN_ARTICLE_LENGTH,
     LOG_DIR,
+    RAW_DIR,
 )
 from .utils import setup_logging, minimize_window
 
@@ -287,6 +288,16 @@ class WSJScraper:
                 paragraphs=paragraphs,
                 scraped_at=datetime.now().isoformat(),
             )
+            
+            # Save raw article to cache
+            try:
+                RAW_DIR.mkdir(parents=True, exist_ok=True)
+                raw_path = RAW_DIR / f"{article.id}.json"
+                with open(raw_path, 'w', encoding='utf-8') as f:
+                    json.dump(article.to_dict(), f, ensure_ascii=False, indent=2)
+                self.logger.debug(f"Saved raw article to {raw_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to save raw article: {e}")
             
             self.logger.info(f"Success: {title[:50]}...")
             return article
