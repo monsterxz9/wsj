@@ -118,20 +118,16 @@ async def run_scraper(
     logger.info("[Step 3/3] Generating PDFs...")
     output_files = []
     
-    import hashlib
-    
     for article in translated:
         try:
             pdf_path = generate_pdf(article)
             output_files.append(pdf_path)
-            
+
             if save_json_file:
                 save_json(article)
-            
+
             # 清理原始缓存
-            # 计算 ID
-            art_id = hashlib.md5(article.original_url.encode()).hexdigest()[:12]
-            clean_raw_article(art_id)
+            clean_raw_article(article.id)
             
         except Exception as e:
             logger.error(f"Failed to generate PDF: {e}")

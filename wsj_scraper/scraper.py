@@ -4,6 +4,7 @@ WSJ Article Scraper - Chrome Remote Debug 版本
 """
 import asyncio
 import json
+import logging
 import re
 import random
 from datetime import datetime
@@ -30,6 +31,7 @@ from .config import (
     MIN_ARTICLE_LENGTH,
     LOG_DIR,
     RAW_DIR,
+    MAX_HISTORY_SIZE,
 )
 from .utils import setup_logging, minimize_window
 
@@ -65,6 +67,7 @@ class WSJScraper:
         self.browser = None
         self._playwright = None
         self._processed_urls = self._load_history()
+        self._history_dirty = False
         self.CHROME_DEBUG_URL = "http://localhost:9222"
         self.logger = setup_logging("Scraper")
     
@@ -79,12 +82,17 @@ class WSJScraper:
     
     def _save_history(self):
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        urls = list(self._processed_urls)
+        # 超过上限时只保留最近的记录
+        if len(urls) > MAX_HISTORY_SIZE:
+            urls = urls[-MAX_HISTORY_SIZE:]
+            self._processed_urls = set(urls)
         with open(HISTORY_FILE, 'w') as f:
-            json.dump({'urls': list(self._processed_urls)}, f)
+            json.dump({'urls': urls}, f)
     
     def _mark_processed(self, url: str):
         self._processed_urls.add(url)
-        self._save_history()
+        self._history_dirty = True
     
     def is_processed(self, url: str) -> bool:
         return url in self._processed_urls
@@ -113,7 +121,9 @@ class WSJScraper:
             raise
     
     async def close(self):
-        """断开连接"""
+        """断开连接，保存历史记录"""
+        if self._history_dirty:
+            self._save_history()
         if self._playwright:
             await self._playwright.stop()
         self.logger.info("Disconnected from Chrome")
@@ -153,7 +163,7 @@ class WSJScraper:
                     await page.mouse.wheel(0, random.randint(300, 600))
                     await asyncio.sleep(random.uniform(0.5, 1.5))
 
-            await page.goto(WSJ_HOME_URL, wait_until='networkidle')
+            await page.goto(WSJ_HOME_URL, wait_until='domcontentloaded')
             await human_scroll()
             
             # 等待页面进一步加载
@@ -162,10 +172,11 @@ class WSJScraper:
             # Debug: 打印标题和截图
             title = await page.title()
             self.logger.debug(f"Page Title: {title}")
-            
-            # Save debug screenshot to logs
-            debug_shot = LOG_DIR / f"homepage_{datetime.now():%Y%m%d_%H%M%S}.png"
-            await page.screenshot(path=str(debug_shot), full_page=True)
+
+            # Save debug screenshot only at DEBUG level
+            if self.logger.isEnabledFor(logging.DEBUG):
+                debug_shot = LOG_DIR / f"homepage_{datetime.now():%Y%m%d_%H%M%S}.png"
+                await page.screenshot(path=str(debug_shot), full_page=True)
             
             # 获取所有链接
             links = await page.query_selector_all('a[href]')
@@ -189,7 +200,6 @@ class WSJScraper:
                             href = f"https://www.wsj.com{href}"
                         
                         # 检查是否是文章链接（包含8位十六进制ID结尾）
-                        import re
                         if re.search(r'/[a-z-]+-[a-f0-9]{8}(\?|$)', href):
                             # 清理 URL
                             clean_url = href.split('?')[0]
@@ -199,7 +209,7 @@ class WSJScraper:
                                 articles.append(clean_url)
                                 if len(articles) >= limit:
                                     break
-                except:
+                except Exception:
                     continue
             
             self.logger.info(f"Found {len(articles)} new articles")

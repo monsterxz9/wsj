@@ -7,6 +7,7 @@ import json
 import re
 import os
 import asyncio
+import hashlib
 from typing import Optional
 from dataclasses import dataclass
 import httpx
@@ -37,6 +38,10 @@ class TranslatedArticle:
     vocabulary: list[dict]
     original_url: str
     date: str
+
+    @property
+    def id(self) -> str:
+        return hashlib.md5(self.original_url.encode()).hexdigest()[:12]
 
 
 # 批量翻译提示词
@@ -120,34 +125,38 @@ class AITranslator:
     def __init__(self):
         self.logger = setup_logging("Translator")
         self.logger.info(f"Using Gemini: {GEMINI_MODEL}")
-    
+        self._client = httpx.AsyncClient(timeout=300)
+
+    async def close(self):
+        """关闭 HTTP 客户端"""
+        await self._client.aclose()
+
     async def _call_gemini(self, prompt: str, max_retries: int = API_RETRY_ATTEMPTS, max_output_tokens: int = 65536) -> dict:
         """调用 Google Gemini API - 使用 JSON 模式，带网络异常和 429 重试"""
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-        
+
         last_exception = None
-        
+
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(timeout=300) as client:
-                    response = await client.post(
-                        url,
-                        params={"key": GEMINI_API_KEY},
-                        json={
-                            "contents": [{"parts": [{"text": prompt}]}],
-                            "generationConfig": {
-                                "temperature": 0.2,
-                                "maxOutputTokens": max_output_tokens,
-                                "responseMimeType": "application/json",
-                            },
-                            "safetySettings": [
-                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                            ]
-                        }
-                    )
+                response = await self._client.post(
+                    url,
+                    params={"key": GEMINI_API_KEY},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.2,
+                            "maxOutputTokens": max_output_tokens,
+                            "responseMimeType": "application/json",
+                        },
+                        "safetySettings": [
+                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                        ]
+                    }
+                )
                 
                 if response.status_code == 200:
                     data = response.json()
@@ -173,7 +182,7 @@ class AITranslator:
                                 if match:
                                     retry_delay = int(match.group(1)) + 5
                                 break
-                    except:
+                    except (KeyError, ValueError, TypeError):
                         pass
                     
                     self.logger.warning(f"Rate limit (429). Waiting {retry_delay}s... (retry {attempt + 1}/{max_retries})")
@@ -203,16 +212,16 @@ class AITranslator:
         
         try:
             return json.loads(text)
-        except:
+        except (json.JSONDecodeError, ValueError):
             pass
-        
+
         match = re.search(r'\{[\s\S]*\}', text)
         if match:
             json_str = match.group()
             json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
             try:
                 return json.loads(json_str)
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
         
         return {"articles": []}
@@ -369,26 +378,29 @@ async def translate_articles(articles: list[Article]) -> list[TranslatedArticle]
         return []
     
     translator = AITranslator()
-    
-    # 将文章分块，确保响应不会因长度被截断
-    chunk_size = TRANSLATION_CHUNK_SIZE
-    all_translated = []
-    
-    for i in range(0, len(articles), chunk_size):
-        chunk = articles[i:i + chunk_size]
-        logger.info(f"Processing chunk {i//chunk_size + 1}/{(len(articles)-1)//chunk_size + 1} ({len(chunk)} articles)")
-        try:
-            translated_chunk = await translator.translate_batch(chunk)
-            all_translated.extend(translated_chunk)
-        except Exception as e:
-            logger.error(f"Error processing chunk: {e}")
-            # 如果批量失败，尝试逐篇翻译
-            logger.info("Falling back to single article translation...")
-            for article in chunk:
-                try:
-                    translated = await translator.translate_article(article)
-                    all_translated.append(translated)
-                except Exception as ex:
-                    logger.error(f"Failed to translate article {article.title}: {ex}")
-        
-    return all_translated
+
+    try:
+        # 将文章分块，确保响应不会因长度被截断
+        chunk_size = TRANSLATION_CHUNK_SIZE
+        all_translated = []
+
+        for i in range(0, len(articles), chunk_size):
+            chunk = articles[i:i + chunk_size]
+            logger.info(f"Processing chunk {i//chunk_size + 1}/{(len(articles)-1)//chunk_size + 1} ({len(chunk)} articles)")
+            try:
+                translated_chunk = await translator.translate_batch(chunk)
+                all_translated.extend(translated_chunk)
+            except Exception as e:
+                logger.error(f"Error processing chunk: {e}")
+                # 如果批量失败，尝试逐篇翻译
+                logger.info("Falling back to single article translation...")
+                for article in chunk:
+                    try:
+                        translated = await translator.translate_article(article)
+                        all_translated.append(translated)
+                    except Exception as ex:
+                        logger.error(f"Failed to translate article {article.title}: {ex}")
+
+        return all_translated
+    finally:
+        await translator.close()

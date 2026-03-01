@@ -39,10 +39,10 @@ LOG_LEVEL = "INFO"
 # ==================== AI 翻译配置 ====================
 # Google Gemini API 配置
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # 批量翻译配置
-TRANSLATION_CHUNK_SIZE = 1  # 每次API调用处理的文章数 (Gemini 2.0 Flash context window很大，可以调大)
+TRANSLATION_CHUNK_SIZE = 3  # 每次API调用处理的文章数
 API_RETRY_ATTEMPTS = 3
 API_RETRY_DELAY = 2  # 秒
 
@@ -65,6 +65,9 @@ ARIAL_UNICODE_PATH = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 # ==================== 历史记录 ====================
 # 已处理文章的记录文件
 HISTORY_FILE = PROJECT_ROOT / "wsj_scraper" / ".processed_articles.json"
+
+# 历史记录最大条数 - 超过后自动清理最早的记录
+MAX_HISTORY_SIZE = 500
 
 # 未翻译文章的缓存目录
 RAW_DIR = PROJECT_ROOT / "wsj_scraper" / ".raw_cache"

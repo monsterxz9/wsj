@@ -1,4 +1,5 @@
 from flask import Flask, render_template, send_from_directory, abort
+from werkzeug.utils import secure_filename
 import os
 import re
 
@@ -41,10 +42,15 @@ def serve_pdf(date, filename):
     # Security check
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', date):
         abort(404)
-        
+
+    # Sanitize filename to prevent path traversal
+    safe_name = secure_filename(filename)
+    if not safe_name or safe_name != filename:
+        abort(404)
+
     pdf_dir = os.path.join(OUTPUT_DIR, date, 'pdf')
-    return send_from_directory(pdf_dir, filename)
+    return send_from_directory(pdf_dir, safe_name)
 
 if __name__ == '__main__':
     # Listen on all interfaces so it's accessible externally if needed
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=os.getenv('FLASK_DEBUG', '').lower() == 'true')
