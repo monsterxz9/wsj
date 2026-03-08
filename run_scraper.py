@@ -11,6 +11,8 @@ import os
 import signal
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -35,6 +37,20 @@ import json
 
 logger = setup_logging("Main")
 
+CHROME_DEBUG_URL = "http://localhost:9222/json/version"
+CHROME_PATH = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+CHROME_USER_DATA_DIR = Path.home() / ".wsj_chrome_profile"
+CHROME_PID_FILE = CHROME_USER_DATA_DIR / "chrome-debug-9222.pid"
+
+
+def _is_debug_chrome_running() -> bool:
+    """检查 9222 调试端口是否可用"""
+    try:
+        with urllib.request.urlopen(CHROME_DEBUG_URL, timeout=1):
+            return True
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return False
+
 
 def _is_pid_running(pid: int) -> bool:
     """检查进程是否仍在运行"""
@@ -47,23 +63,75 @@ def _is_pid_running(pid: int) -> bool:
         return True
 
 
+def start_debug_chrome(wait_timeout: int = 20) -> bool:
+    """启动 9222 调试端口的 Chrome"""
+    if _is_debug_chrome_running():
+        logger.info("Debug Chrome already running on port 9222")
+        return True
+
+    if not CHROME_PATH.exists():
+        logger.error(f"Chrome executable not found: {CHROME_PATH}")
+        return False
+
+    CHROME_USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 清理失效 PID 文件
+    if CHROME_PID_FILE.exists():
+        try:
+            stale_pid = int(CHROME_PID_FILE.read_text(encoding="utf-8").strip())
+            if not _is_pid_running(stale_pid):
+                CHROME_PID_FILE.unlink(missing_ok=True)
+        except (ValueError, OSError):
+            CHROME_PID_FILE.unlink(missing_ok=True)
+
+    logger.info("Starting debug Chrome on port 9222...")
+
+    try:
+        process = subprocess.Popen(
+            [
+                str(CHROME_PATH),
+                "--remote-debugging-port=9222",
+                "--window-position=-2000,-2000",
+                "--window-size=800,600",
+                "--no-first-run",
+                f"--user-data-dir={CHROME_USER_DATA_DIR}",
+                "--no-default-browser-check",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        CHROME_PID_FILE.write_text(str(process.pid), encoding="utf-8")
+    except Exception as e:
+        logger.error(f"Failed to launch debug Chrome: {e}")
+        return False
+
+    deadline = time.time() + max(1, wait_timeout)
+    while time.time() < deadline:
+        if _is_debug_chrome_running():
+            logger.info("Debug Chrome started")
+            return True
+        time.sleep(0.5)
+
+    logger.error("Timed out waiting for debug Chrome to start")
+    return False
+
+
 def shutdown_debug_chrome() -> bool:
     """关闭 9222 调试端口的 Chrome，避免后台进程累积"""
-    user_data_dir = Path.home() / ".wsj_chrome_profile"
-    pid_file = user_data_dir / "chrome-debug-9222.pid"
     pids = set()
 
     # 1) 优先读取 PID 文件
-    if pid_file.exists():
+    if CHROME_PID_FILE.exists():
         try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            pid = int(CHROME_PID_FILE.read_text(encoding="utf-8").strip())
             if pid > 0:
                 pids.add(pid)
         except (ValueError, OSError):
             pass
 
     # 2) 兜底：扫描命令行参数匹配的调试 Chrome 进程
-    pattern = f"--remote-debugging-port=9222.*--user-data-dir={user_data_dir}"
+    pattern = f"--remote-debugging-port=9222.*--user-data-dir={CHROME_USER_DATA_DIR}"
     try:
         result = subprocess.run(
             ["pgrep", "-f", pattern],
@@ -80,7 +148,7 @@ def shutdown_debug_chrome() -> bool:
 
     if not pids:
         try:
-            pid_file.unlink(missing_ok=True)
+            CHROME_PID_FILE.unlink(missing_ok=True)
         except OSError:
             pass
         logger.info("No debug Chrome process to stop")
@@ -105,7 +173,7 @@ def shutdown_debug_chrome() -> bool:
             break
 
     try:
-        pid_file.unlink(missing_ok=True)
+        CHROME_PID_FILE.unlink(missing_ok=True)
     except OSError:
         pass
 
@@ -151,6 +219,7 @@ async def run_scraper(
     save_json_file: bool = True,
     url: Optional[str] = None,
     shutdown_chrome_after_run: bool = True,
+    auto_start_chrome: bool = True,
 ):
     """
     运行完整的抓取-翻译-生成流程
@@ -159,6 +228,17 @@ async def run_scraper(
     output_files = []
 
     try:
+        if auto_start_chrome:
+            if not start_debug_chrome():
+                logger.error("Unable to start debug Chrome")
+                return []
+        elif not _is_debug_chrome_running():
+            logger.error("Debug Chrome is not running on port 9222")
+            logger.error(
+                "Run `wsj-scraper --start-chrome` first or remove --no-auto-start-chrome"
+            )
+            return []
+
         articles = []
 
         # 0. 加载未翻译的缓存文章 (仅在非指定URL模式下)
@@ -256,8 +336,33 @@ def main():
         action="store_true",
         help="爬取完成后不关闭 9222 调试 Chrome（默认会自动关闭）",
     )
+    parser.add_argument(
+        "--start-chrome",
+        action="store_true",
+        help="仅启动 9222 调试 Chrome 并退出",
+    )
+    parser.add_argument(
+        "--stop-chrome",
+        action="store_true",
+        help="仅关闭 9222 调试 Chrome 并退出",
+    )
+    parser.add_argument(
+        "--no-auto-start-chrome",
+        action="store_true",
+        help="不自动启动 9222 调试 Chrome（默认自动启动）",
+    )
 
     args = parser.parse_args()
+
+    if args.start_chrome and args.stop_chrome:
+        parser.error("--start-chrome and --stop-chrome cannot be used together")
+
+    if args.start_chrome:
+        raise SystemExit(0 if start_debug_chrome() else 1)
+
+    if args.stop_chrome:
+        shutdown_debug_chrome()
+        raise SystemExit(0)
 
     asyncio.run(
         run_scraper(
@@ -266,6 +371,7 @@ def main():
             save_json_file=not args.no_json,
             url=args.url,
             shutdown_chrome_after_run=not args.keep_chrome,
+            auto_start_chrome=not args.no_auto_start_chrome,
         )
     )
 

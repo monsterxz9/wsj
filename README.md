@@ -71,6 +71,10 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ### 1. Start Chrome in Debug Mode
 
 ```bash
+# Start from CLI app
+wsj-scraper --start-chrome
+
+# Or use shell helper
 ./start_chrome.sh
 ```
 
@@ -106,9 +110,12 @@ wsj-scraper --no-headless
 # Skip JSON output, generate PDF only
 python run_scraper.py --no-json
 wsj-scraper --no-json
+
+# If you want to manage Chrome lifecycle yourself
+wsj-scraper --no-auto-start-chrome --keep-chrome
 ```
 
-By default, `run_scraper.py` will automatically close the debug Chrome on port 9222 when finished, to avoid accumulating background Chrome tasks.
+By default, `run_scraper.py`/`wsj-scraper` will auto-start debug Chrome on port 9222 when needed, and auto-close it when finished to avoid accumulating background Chrome tasks.
 
 ### 3. Find Your PDFs
 
@@ -124,6 +131,9 @@ output/
 ### 4. Manually Stop Debug Chrome (Optional)
 
 ```bash
+wsj-scraper --stop-chrome
+
+# Or use shell helper
 ./stop_chrome.sh
 ```
 
