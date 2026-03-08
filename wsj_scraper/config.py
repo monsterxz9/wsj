@@ -62,10 +62,10 @@ LOG_LEVEL = "INFO"
 # ==================== AI 翻译配置 ====================
 # Google Gemini API 配置
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-# 批量翻译配置
-TRANSLATION_CHUNK_SIZE = 3  # 每次API调用处理的文章数
+# 批量翻译配置：每批文章数，多批并行执行
+TRANSLATION_CHUNK_SIZE = 3
 API_RETRY_ATTEMPTS = 3
 API_RETRY_DELAY = 2  # 秒
 

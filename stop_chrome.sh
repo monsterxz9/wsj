@@ -20,7 +20,7 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 2) 兜底：按参数匹配关闭所有调试 Chrome
-pids="$(pgrep -f "$PATTERN" 2>/dev/null || true)"
+pids="$(pgrep -f -- "$PATTERN" 2>/dev/null || true)"
 if [ -n "$pids" ]; then
     kill $pids >/dev/null 2>&1 || true
     stopped=1
@@ -30,7 +30,7 @@ fi
 sleep 1
 
 # 3) 仍未退出则强制杀掉
-still_pids="$(pgrep -f "$PATTERN" 2>/dev/null || true)"
+still_pids="$(pgrep -f -- "$PATTERN" 2>/dev/null || true)"
 if [ -n "$still_pids" ]; then
     kill -9 $still_pids >/dev/null 2>&1 || true
     stopped=1

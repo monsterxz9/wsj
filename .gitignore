@@ -51,6 +51,10 @@ deprecated/
 *.temp
 output/
 
+# Cache
+.ruff_cache/
+wsj_scraper/.raw_cache/
+
 # Packaging artifacts
 build/
 dist/

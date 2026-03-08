@@ -5,8 +5,8 @@ Automatically scrape Wall Street Journal articles, translate them to Chinese usi
 ## Features
 
 - **Automated Scraping** - Fetches articles from WSJ homepage using Playwright + Chrome Remote Debug
-- **AI Translation** - Uses Google Gemini 2.5 Flash for high-quality English-Chinese translation
-- **Batch Processing** - Translates multiple articles in a single API call (saves 90% API quota)
+- **AI Translation** - Uses Google Gemini Flash models (default `gemini-2.5-flash`)
+- **Per-Article Calls** - Translates articles one by one for better stability on paid API
 - **TOEIC Vocabulary** - Extracts 10 TOEIC-relevant vocabulary words per article with phonetics, definitions, and example sentences
 - **Bilingual PDF** - Generates professional side-by-side English-Chinese PDF documents
 - **Smart Retry** - Handles network instability with exponential backoff (up to 10 retries)
@@ -64,23 +64,13 @@ Create a `.env` file in the project root:
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
+# Optional: override model (default: gemini-2.5-flash)
+# GEMINI_MODEL=gemini-2.5-flash
 ```
 
 ## Usage
 
-### 1. Start Chrome in Debug Mode
-
-```bash
-# Start from CLI app
-wsj-scraper --start-chrome
-
-# Or use shell helper
-./start_chrome.sh
-```
-
-This starts Chrome with remote debugging enabled (port 9222). The window is hidden off-screen to avoid interrupting your work.
-
-### 2. Run the Scraper
+### 1. Run the Scraper
 
 ```bash
 source venv/bin/activate
@@ -111,13 +101,20 @@ wsj-scraper --no-headless
 python run_scraper.py --no-json
 wsj-scraper --no-json
 
-# If you want to manage Chrome lifecycle yourself
-wsj-scraper --no-auto-start-chrome --keep-chrome
+# Skip TOEIC vocabulary extraction for faster translation
+python run_scraper.py --no-vocab
+wsj-scraper --no-vocab
+
+# Customize vocabulary count (1-20)
+python run_scraper.py --vocab-count 5
+wsj-scraper --vocab-count 5
 ```
 
 By default, `run_scraper.py`/`wsj-scraper` will auto-start debug Chrome on port 9222 when needed, and auto-close it when finished to avoid accumulating background Chrome tasks.
 
-### 3. Find Your PDFs
+Press `Ctrl+C` to interrupt; the program exits gracefully and cleans up Chrome lifecycle automatically.
+
+### 2. Find Your PDFs
 
 Generated files are organized by date:
 
@@ -137,30 +134,42 @@ WSJ_OUTPUT_DIR="$HOME/Documents/wsj-output" ./dist/wsj-scraper-cli --url "..."
 WSJ_PROJECT_ROOT="$HOME/wsj-runtime" ./dist/wsj-scraper-cli --url "..."
 ```
 
-### 4. Manually Stop Debug Chrome (Optional)
+### 3. Debug Chrome Scripts (Optional)
 
 ```bash
-wsj-scraper --stop-chrome
-
-# Or use shell helper
+./start_chrome.sh
 ./stop_chrome.sh
 ```
 
-Use this if you started Chrome with `--keep-chrome` and want to stop it later.
+These helper scripts are only for debugging or manual lifecycle control.
 
-### 5. Process Custom Transcripts
+### 4. Process Custom Transcripts
 You can also process long text files (like interview transcripts). Example for Naval Ravikant's full transcript:
 ```bash
 python naval_study.py
 ```
 
-### 6. Build Standalone CLI App
+### 5. Build Standalone CLI App
 
 ```bash
-./build_cli.sh
+# Single-file binary (distribution friendly, slower startup)
+./build_cli.sh --onefile
+
+# Directory build (faster startup, larger folder)
+./build_cli.sh --onedir
 ```
 
-This generates a standalone binary at `dist/wsj-scraper-cli`.
+Outputs:
+
+- onefile: `dist/wsj-scraper-cli`
+- onedir: `dist/wsj-scraper-cli-fast/wsj-scraper-cli-fast`
+
+## Speed Tips
+
+- `--no-vocab`: fastest option; skips vocabulary extraction (usually saves noticeable time)
+- `--no-json`: skips JSON file save and writes PDF only
+- `--keep-chrome`: keep debug Chrome alive if you run multiple URLs back-to-back
+- prefer `./build_cli.sh --onedir`: startup is faster than onefile on macOS
 
 ## Project Structure
 
@@ -183,20 +192,13 @@ wsj-toeic-reader/
 ## How It Works
 
 1. **Scraping**: Connects to Chrome via CDP (Chrome DevTools Protocol) and extracts article content from WSJ
-2. **Translation**: Sends all articles to Gemini 2.5 Flash in a single batch request with JSON mode enabled
+2. **Translation**: Sends each article to Gemini Flash model with JSON mode enabled (default `gemini-2.5-flash`)
 3. **Vocabulary Extraction**: AI extracts 10 TOEIC-relevant words with phonetics, meanings, and example sentences
 4. **PDF Generation**: Creates professional bilingual PDFs using ReportLab with proper Chinese font support
 
 ## API Usage
 
-The batch translation feature significantly reduces API calls:
-
-| Articles | Traditional | This Project |
-|----------|-------------|--------------|
-| 5        | 5 calls     | 1 call       |
-| 10       | 10 calls    | 1 call       |
-
-Gemini 2.5 Flash free tier: 15 requests/minute, 1500 requests/day
+The default flow now translates per article (1 article = 1 API call), which avoids oversized responses and is more reliable for paid API users.
 
 ## Troubleshooting
 
@@ -220,6 +222,14 @@ Network instability is handled with exponential backoff (15s, 30s, 45s, 60s...).
 ### JSON Decode Errors
 
 If translation output is truncated, the scraper will attempt to parse partial results. Reduce `--limit` if this happens frequently.
+
+### Node Deprecation Warning (`DEP0169`)
+
+This warning comes from Node-side Playwright internals and is non-fatal. The CLI now suppresses deprecation noise by default. To show all Node warnings again, set:
+
+```bash
+WSJ_SHOW_NODE_WARNINGS=1 python run_scraper.py
+```
 
 ## License
 
