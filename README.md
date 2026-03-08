@@ -45,7 +45,10 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install playwright httpx reportlab python-dotenv
+pip install -r requirements.txt
+
+# Install CLI command (wsj-scraper)
+pip install -e .
 
 # Install Playwright browsers
 playwright install chromium
@@ -78,15 +81,34 @@ This starts Chrome with remote debugging enabled (port 9222). The window is hidd
 ```bash
 source venv/bin/activate
 
-# Scrape and translate 5 articles (default)
+# Scrape homepage and translate 5 articles (default)
 python run_scraper.py
+
+# Same behavior via installed CLI command
+wsj-scraper
 
 # Scrape 10 articles
 python run_scraper.py --limit 10
+wsj-scraper --limit 10
 
 # Scrape a specific article URL
 python run_scraper.py --url "https://www.wsj.com/articles/example-article"
+wsj-scraper --url "https://www.wsj.com/articles/example-article"
+
+# Keep Chrome alive after scraping (default is auto-close 9222 Chrome)
+python run_scraper.py --keep-chrome
+wsj-scraper --keep-chrome
+
+# Show browser window for debugging
+python run_scraper.py --no-headless
+wsj-scraper --no-headless
+
+# Skip JSON output, generate PDF only
+python run_scraper.py --no-json
+wsj-scraper --no-json
 ```
+
+By default, `run_scraper.py` will automatically close the debug Chrome on port 9222 when finished, to avoid accumulating background Chrome tasks.
 
 ### 3. Find Your PDFs
 
@@ -99,18 +121,37 @@ output/
     └── json/  # Raw translation data
 ```
 
-### 4. Process Custom Transcripts
+### 4. Manually Stop Debug Chrome (Optional)
+
+```bash
+./stop_chrome.sh
+```
+
+Use this if you started Chrome with `--keep-chrome` and want to stop it later.
+
+### 5. Process Custom Transcripts
 You can also process long text files (like interview transcripts). Example for Naval Ravikant's full transcript:
 ```bash
 python naval_study.py
 ```
+
+### 6. Build Standalone CLI App
+
+```bash
+./build_cli.sh
+```
+
+This generates a standalone binary at `dist/wsj-scraper-cli`.
 
 ## Project Structure
 
 ```
 wsj-toeic-reader/
 ├── run_scraper.py          # Main entry point
+├── pyproject.toml          # CLI packaging config
+├── build_cli.sh            # Build standalone CLI binary
 ├── start_chrome.sh         # Chrome launcher script
+├── stop_chrome.sh          # Chrome stopper script
 ├── wsj_scraper/
 │   ├── config.py           # Configuration settings
 │   ├── scraper.py          # Web scraping logic

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wsj-scraper-cli"
+version = "0.1.0"
+description = "CLI tool for scraping WSJ articles and generating bilingual study PDFs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "playwright>=1.40.0",
+  "httpx>=0.25.0",
+  "reportlab>=4.0.0",
+  "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+build = [
+  "build>=1.2.2",
+  "pyinstaller>=6.0.0",
+]
+
+[project.scripts]
+wsj-scraper = "run_scraper:main"
+
+[tool.setuptools]
+packages = ["wsj_scraper"]
+py-modules = ["run_scraper"]

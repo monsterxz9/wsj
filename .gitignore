@@ -50,3 +50,9 @@ deprecated/
 *.tmp
 *.temp
 output/
+
+# Packaging artifacts
+build/
+dist/
+*.spec
+*.egg-info/
