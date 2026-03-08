@@ -4,19 +4,10 @@ WSJ Scraper Configuration
 """
 
 import os
-import sys
 from pathlib import Path
 
 
 def _resolve_project_root() -> Path:
-    """Resolve runtime root for source mode and bundled CLI mode."""
-    env_root = os.getenv("WSJ_PROJECT_ROOT", "").strip()
-    if env_root:
-        return Path(env_root).expanduser()
-
-    if getattr(sys, "frozen", False):
-        return Path.cwd()
-
     return Path(__file__).resolve().parent.parent
 
 

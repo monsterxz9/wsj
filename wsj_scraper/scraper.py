@@ -69,32 +69,37 @@ class WSJScraper:
         self.headless = headless
         self.browser = None
         self._playwright = None
-        self._processed_urls = self._load_history()
         self._history_dirty = False
         self.CHROME_DEBUG_URL = "http://localhost:9222"
         self.logger = setup_logging("Scraper")
+        self._processed_urls = self._load_history()
 
-    def _load_history(self) -> set:
+    def _load_history(self) -> dict:
         if HISTORY_FILE.exists():
             try:
                 with open(HISTORY_FILE, "r") as f:
-                    return set(json.load(f).get("urls", []))
+                    urls = json.load(f).get("urls", [])
+                    # dict.fromkeys 保留插入顺序，同时支持 O(1) 查找
+                    return dict.fromkeys(urls)
             except Exception as e:
                 self.logger.warning(f"Failed to load history: {e}")
-        return set()
+        return {}
 
     def _save_history(self):
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         urls = list(self._processed_urls)
-        # 超过上限时只保留最近的记录
+        # 超过上限时只保留最近添加的记录（dict 保持插入顺序，取末尾即最新）
         if len(urls) > MAX_HISTORY_SIZE:
             urls = urls[-MAX_HISTORY_SIZE:]
-            self._processed_urls = set(urls)
-        with open(HISTORY_FILE, "w") as f:
+            self._processed_urls = dict.fromkeys(urls)
+        # 原子写入：先写临时文件，再 rename，避免中途崩溃损坏文件
+        tmp = HISTORY_FILE.with_suffix(".tmp")
+        with open(tmp, "w") as f:
             json.dump({"urls": urls}, f)
+        tmp.replace(HISTORY_FILE)
 
     def _mark_processed(self, url: str):
-        self._processed_urls.add(url)
+        self._processed_urls[url] = None
         self._history_dirty = True
 
     def is_processed(self, url: str) -> bool:
@@ -162,7 +167,7 @@ class WSJScraper:
         last_count = 0
         stable_rounds = 0
         min_paragraphs = 8
-        max_rounds = max(4, PAGE_LOAD_WAIT)
+        max_rounds = max(4, int(PAGE_LOAD_WAIT))
 
         for _ in range(max_rounds):
             try:
@@ -358,6 +363,7 @@ class WSJScraper:
 
             if not title or not paragraphs:
                 self.logger.warning(f"Failed to extract content for {url}")
+                LOG_DIR.mkdir(parents=True, exist_ok=True)
                 error_shot = LOG_DIR / f"error_{datetime.now():%H%M%S}.png"
                 await page.screenshot(path=str(error_shot))
                 return None
@@ -393,32 +399,38 @@ class WSJScraper:
         finally:
             await page.close()
 
+    _NOISE_PATTERNS = [
+        r"^Subscribe",
+        r"^Sign up",
+        r"^Newsletter",
+        r"^Advertisement",
+        r"^Copyright",
+        r"SHARE YOUR THOUGHTS",
+        r"Join the conversation",
+        r"^Read more",
+        r"^\d+\s*min read",
+        r"^Listen to article",
+    ]
+
     def _is_noise(self, text: str) -> bool:
-        noise = [
-            r"^Subscribe",
-            r"^Sign up",
-            r"^Newsletter",
-            r"^Advertisement",
-            r"^Copyright",
-            r"SHARE YOUR THOUGHTS",
-            r"Join the conversation",
-            r"^Read more",
-            r"^\d+\s*min read",
-            r"^Listen to article",
-        ]
-        return any(re.search(p, text, re.IGNORECASE) for p in noise)
+        return any(re.search(p, text, re.IGNORECASE) for p in self._NOISE_PATTERNS)
 
 
 async def scrape_wsj_articles(
     headless: bool = True, limit: int = MAX_ARTICLES_PER_RUN
 ) -> list[Article]:
-    """主入口函数"""
-    articles = []
+    """主入口函数 - 并发抓取（最多同时开 3 个标签页）"""
     async with WSJScraper(headless=headless) as scraper:
         urls = await scraper.get_homepage_articles(limit=limit)
-        for url in urls:
-            article = await scraper.scrape_article(url)
-            if article:
-                articles.append(article)
-            await asyncio.sleep(random.uniform(2, 4))
-    return articles
+
+        sem = asyncio.Semaphore(3)
+
+        async def _fetch(url: str) -> Optional[Article]:
+            async with sem:
+                result = await scraper.scrape_article(url)
+                # 每篇仍保留随机延迟，防止同时发起过多请求
+                await asyncio.sleep(random.uniform(1, 3))
+                return result
+
+        results = await asyncio.gather(*[_fetch(url) for url in urls])
+        return [a for a in results if a]

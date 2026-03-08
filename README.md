@@ -40,15 +40,9 @@ output/
 git clone https://github.com/yourusername/wsj-toeic-reader.git
 cd wsj-toeic-reader
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install CLI command (wsj-scraper)
-pip install -e .
+# Create virtual environment and install dependencies
+uv venv && source .venv/bin/activate
+uv pip install -e .
 
 # Install Playwright browsers
 playwright install chromium
@@ -73,7 +67,7 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ### 1. Run the Scraper
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 
 # Scrape homepage and translate 5 articles (default)
 python run_scraper.py
@@ -125,51 +119,17 @@ output/
     └── json/  # Raw translation data
 ```
 
-When using the bundled binary (`dist/wsj-scraper-cli`), output defaults to the **current working directory** (where you run the command), not the temporary PyInstaller extraction folder.
-
-Optional overrides:
+Optional override:
 
 ```bash
-WSJ_OUTPUT_DIR="$HOME/Documents/wsj-output" ./dist/wsj-scraper-cli --url "..."
-WSJ_PROJECT_ROOT="$HOME/wsj-runtime" ./dist/wsj-scraper-cli --url "..."
+WSJ_OUTPUT_DIR="$HOME/Documents/wsj-output" python run_scraper.py --url "..."
 ```
-
-### 3. Debug Chrome Scripts (Optional)
-
-```bash
-./start_chrome.sh
-./stop_chrome.sh
-```
-
-These helper scripts are only for debugging or manual lifecycle control.
-
-### 4. Process Custom Transcripts
-You can also process long text files (like interview transcripts). Example for Naval Ravikant's full transcript:
-```bash
-python naval_study.py
-```
-
-### 5. Build Standalone CLI App
-
-```bash
-# Single-file binary (distribution friendly, slower startup)
-./build_cli.sh --onefile
-
-# Directory build (faster startup, larger folder)
-./build_cli.sh --onedir
-```
-
-Outputs:
-
-- onefile: `dist/wsj-scraper-cli`
-- onedir: `dist/wsj-scraper-cli-fast/wsj-scraper-cli-fast`
 
 ## Speed Tips
 
 - `--no-vocab`: fastest option; skips vocabulary extraction (usually saves noticeable time)
 - `--no-json`: skips JSON file save and writes PDF only
 - `--keep-chrome`: keep debug Chrome alive if you run multiple URLs back-to-back
-- prefer `./build_cli.sh --onedir`: startup is faster than onefile on macOS
 
 ## Project Structure
 
@@ -177,14 +137,12 @@ Outputs:
 wsj-toeic-reader/
 ├── run_scraper.py          # Main entry point
 ├── pyproject.toml          # CLI packaging config
-├── build_cli.sh            # Build standalone CLI binary
-├── start_chrome.sh         # Chrome launcher script
-├── stop_chrome.sh          # Chrome stopper script
 ├── wsj_scraper/
 │   ├── config.py           # Configuration settings
 │   ├── scraper.py          # Web scraping logic
 │   ├── translator.py       # AI translation (Gemini API)
 │   └── pdf_generator.py    # PDF generation
+├── web_viewer/             # Optional local Flask viewer
 ├── output/                 # Generated files
 └── .env                    # API keys (not in git)
 ```
@@ -209,7 +167,7 @@ The default flow now translates per article (1 article = 1 API call), which avoi
   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
 ```
 
-Solution: Run `./start_chrome.sh` before running the scraper.
+Solution: Run `wsj-scraper --start-chrome` before running the scraper.
 
 ### Rate Limit (429)
 

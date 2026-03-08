@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Setup
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt && pip install -e .
+uv venv && source .venv/bin/activate
+uv pip install -e .
 playwright install chromium
 cp .env.example .env  # then add GEMINI_API_KEY
 
@@ -21,9 +21,6 @@ python run_scraper.py --vocab-count 5        # 5 vocab words instead of 10
 # Chrome lifecycle (if managing manually)
 wsj-scraper --start-chrome
 wsj-scraper --stop-chrome
-
-# Build standalone binary
-./build_cli.sh   # outputs dist/wsj-scraper-cli
 ```
 
 No automated test suite exists — testing is manual by running against real URLs.
@@ -38,7 +35,7 @@ The pipeline has four sequential stages orchestrated by `run_scraper.py`:
 
 3. **Generate PDF** (`wsj_scraper/pdf_generator.py`) — Creates bilingual side-by-side PDFs using ReportLab. Chinese text uses macOS system font (`/System/Library/Fonts/Supplemental/Songti.ttc`). Long paragraphs (>2000 chars) fall back to sequential layout instead of two-column.
 
-4. **Output** — PDFs and JSON saved to `output/YYYY-MM-DD/pdf/` and `output/YYYY-MM-DD/json/`. When running the PyInstaller bundle, output goes to CWD, not the temp extraction folder.
+4. **Output** — PDFs and JSON saved to `output/YYYY-MM-DD/pdf/` and `output/YYYY-MM-DD/json/`.
 
 ### Key files
 
@@ -59,4 +56,3 @@ Chrome is launched with `--remote-debugging-port=9222` and positioned off-screen
 
 - `GEMINI_API_KEY` — required for translation
 - `WSJ_OUTPUT_DIR` — override output directory
-- `WSJ_PROJECT_ROOT` — override project root (used by PyInstaller bundle)
