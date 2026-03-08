@@ -56,3 +56,21 @@ Chrome is launched with `--remote-debugging-port=9222` and positioned off-screen
 
 - `GEMINI_API_KEY` — required for translation
 - `WSJ_OUTPUT_DIR` — override output directory
+
+## 部署（xianyu 服务器）
+
+output 和 web_viewer 部署在 GCP Ubuntu (`ssh xianyu`)，路径 `/home/ubuntu/wsj/`。
+
+```bash
+# 同步新 output 到服务器（alias 已写入 ~/.zshrc）
+wsj-sync
+
+# 查看当前 CF 公网链接（重启后 URL 会变）
+ssh xianyu "cat ~/wsj/tunnel-url.txt"
+```
+
+**服务器 systemd 服务：**
+- `wsj-viewer` — gunicorn 跑 Flask，监听 :5001
+- `wsj-tunnel` — cloudflared quick tunnel，暴露公网 CF 链接
+
+**rsync 规则：** 排除 `.DS_Store`、`__pycache__`、`*.log`
