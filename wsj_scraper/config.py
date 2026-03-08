@@ -64,7 +64,7 @@ LOG_LEVEL = "INFO"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-# 批量翻译配置：每批文章数，多批并行执行
+# 批量翻译配置（保留供参考，当前流程全部并行无需分块）
 TRANSLATION_CHUNK_SIZE = 3
 API_RETRY_ATTEMPTS = 3
 API_RETRY_DELAY = 2  # 秒

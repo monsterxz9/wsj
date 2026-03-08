@@ -13,7 +13,7 @@ import httpx
 from .scraper import Article
 
 
-from .config import GEMINI_API_KEY, GEMINI_MODEL, API_RETRY_ATTEMPTS, API_RETRY_DELAY, TRANSLATION_CHUNK_SIZE
+from .config import GEMINI_API_KEY, GEMINI_MODEL, API_RETRY_ATTEMPTS, API_RETRY_DELAY
 from .utils import setup_logging
 
 
@@ -557,7 +557,7 @@ async def translate_articles(
     vocabulary_count: int = 10,
 ) -> list[TranslatedArticle]:
     """
-    翻译文章列表 - 按 TRANSLATION_CHUNK_SIZE 分块，并行批量调用 API
+    翻译文章列表 - 全部并行调用（Gemini 2.5 Flash RPM=1000，无需限速）
     """
     logger = setup_logging("TranslatorRunner")
 
@@ -572,28 +572,21 @@ async def translate_articles(
     translator = AITranslator()
 
     try:
-        chunks = [
-            articles[i : i + TRANSLATION_CHUNK_SIZE]
-            for i in range(0, len(articles), TRANSLATION_CHUNK_SIZE)
-        ]
-        logger.info(
-            f"Translating {len(articles)} articles in {len(chunks)} parallel chunk(s) "
-            f"(chunk_size={TRANSLATION_CHUNK_SIZE})..."
-        )
+        logger.info(f"Translating {len(articles)} articles in parallel...")
 
-        async def translate_chunk(chunk: list[Article]) -> list[TranslatedArticle]:
+        async def translate_one(article: Article) -> TranslatedArticle | None:
             try:
-                return await translator.translate_batch(
-                    chunk,
+                return await translator.translate_article(
+                    article,
                     include_vocabulary=include_vocabulary,
                     vocabulary_count=vocabulary_count,
                 )
             except Exception as e:
-                logger.error(f"Chunk translation failed: {e}")
-                return []
+                logger.error(f"Failed to translate '{article.title[:60]}': {e}")
+                return None
 
-        results = await asyncio.gather(*[translate_chunk(chunk) for chunk in chunks])
-        all_translated = [article for chunk_result in results for article in chunk_result]
+        results = await asyncio.gather(*[translate_one(a) for a in articles])
+        all_translated = [r for r in results if r is not None]
         logger.info(f"Done: {len(all_translated)}/{len(articles)} articles translated")
         return all_translated
     finally:
