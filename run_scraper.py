@@ -255,13 +255,16 @@ async def run_scraper(
     try:
         _configure_node_runtime()
 
-        if not start_debug_chrome():
-            logger.error("Unable to start debug Chrome")
-            return []
+        # Chrome 启动放到后台线程，与模块导入并行执行
+        chrome_task = asyncio.create_task(asyncio.to_thread(start_debug_chrome))
 
         from wsj_scraper.scraper import WSJScraper, scrape_wsj_articles
         from wsj_scraper.translator import translate_articles
         from wsj_scraper.pdf_generator import generate_pdf, save_json
+
+        if not await chrome_task:
+            logger.error("Unable to start debug Chrome")
+            return []
 
         articles = []
 
