@@ -167,6 +167,8 @@ def shutdown_debug_chrome() -> bool:
 
         if sig == signal.SIGTERM:
             time.sleep(1)
+        else:
+            time.sleep(0.5)
 
         remaining = [pid for pid in remaining if _is_pid_running(pid)]
         if not remaining:

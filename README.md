@@ -128,6 +128,15 @@ output/
     └── json/  # Raw translation data
 ```
 
+When using the bundled binary (`dist/wsj-scraper-cli`), output defaults to the **current working directory** (where you run the command), not the temporary PyInstaller extraction folder.
+
+Optional overrides:
+
+```bash
+WSJ_OUTPUT_DIR="$HOME/Documents/wsj-output" ./dist/wsj-scraper-cli --url "..."
+WSJ_PROJECT_ROOT="$HOME/wsj-runtime" ./dist/wsj-scraper-cli --url "..."
+```
+
 ### 4. Manually Stop Debug Chrome (Optional)
 
 ```bash

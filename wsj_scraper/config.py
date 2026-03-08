@@ -2,18 +2,41 @@
 WSJ Scraper Configuration
 配置文件 - 请根据你的实际情况修改
 """
+
 import os
+import sys
 from pathlib import Path
+
+
+def _resolve_project_root() -> Path:
+    """Resolve runtime root for source mode and bundled CLI mode."""
+    env_root = os.getenv("WSJ_PROJECT_ROOT", "").strip()
+    if env_root:
+        return Path(env_root).expanduser()
+
+    if getattr(sys, "frozen", False):
+        return Path.cwd()
+
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_output_dir(project_root: Path) -> Path:
+    """Allow overriding output directory via environment variable."""
+    env_output_dir = os.getenv("WSJ_OUTPUT_DIR", "").strip()
+    if env_output_dir:
+        return Path(env_output_dir).expanduser()
+    return project_root / "output"
+
 
 # ==================== 路径配置 ====================
 # 项目根目录
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = _resolve_project_root()
 
 # 输出目录 - 可以改成 iCloud Drive 路径
 # macOS iCloud Drive 路径通常是:
 # ~/Library/Mobile Documents/com~apple~CloudDocs/WSJ_Articles
 # 或者: ~/Library/CloudStorage/iCloud Drive/WSJ_Articles
-OUTPUT_DIR = PROJECT_ROOT / "output"
+OUTPUT_DIR = _resolve_output_dir(PROJECT_ROOT)
 
 # Chrome 用户数据目录 (用于加载已安装的扩展)
 CHROME_USER_DATA_DIR = Path.home() / "Library/Application Support/Google/Chrome"
