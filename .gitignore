@@ -1,0 +1,10 @@
+.venv/
+.env
+__pycache__/
+*.egg-info/
+.wrangler/
+.DS_Store
+output/
+logs/
+wsj_scraper/.raw_cache/
+wsj_scraper/.processed_articles.json
