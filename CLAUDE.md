@@ -43,10 +43,11 @@ The pipeline has four sequential stages orchestrated by `run_scraper.py`:
 |------|---------|
 | `run_scraper.py` | CLI entry point, Chrome lifecycle, pipeline orchestration |
 | `wsj_scraper/config.py` | All configuration constants and env var overrides |
-| `wsj_scraper/scraper.py` | Playwright + CDP scraping, `Article` dataclass |
-| `wsj_scraper/translator.py` | Gemini batch translation, `TranslatedArticle` dataclass |
+| `wsj_scraper/models.py` | `Article` and `TranslatedArticle` dataclasses |
+| `wsj_scraper/scraper.py` | Playwright + CDP scraping |
+| `wsj_scraper/translator.py` | Gemini batch translation |
 | `wsj_scraper/pdf_generator.py` | ReportLab PDF generation |
-| `web_viewer/app.py` | Optional Flask viewer at localhost:5001 |
+| `upload_to_r2.sh` | 上传 PDF 到 Cloudflare R2 |
 
 ### Chrome process management
 
@@ -57,20 +58,16 @@ Chrome is launched with `--remote-debugging-port=9222` and positioned off-screen
 - `GEMINI_API_KEY` — required for translation
 - `WSJ_OUTPUT_DIR` — override output directory
 
-## 部署（xianyu 服务器）
-
-output 和 web_viewer 部署在 GCP Ubuntu (`ssh xianyu`)，路径 `/home/ubuntu/wsj/`。
+## 上传到 R2
 
 ```bash
-# 同步新 output 到服务器（alias 已写入 ~/.zshrc）
-wsj-sync
+# 上传所有 PDF 到 R2
+bash upload_to_r2.sh
 
-# 查看当前 CF 公网链接（重启后 URL 会变）
-ssh xianyu "cat ~/wsj/tunnel-url.txt"
+# 只上传指定日期
+bash upload_to_r2.sh --date 2026-03-14
 ```
 
-**服务器 systemd 服务：**
-- `wsj-viewer` — gunicorn 跑 Flask，监听 :5001
-- `wsj-tunnel` — cloudflared quick tunnel，暴露公网 CF 链接
-
-**rsync 规则：** 排除 `.DS_Store`、`__pycache__`、`*.log`
+- R2 bucket: `wsj-reader`
+- Web viewer: `~/code/sites/wsj/`（独立 Pages 项目）
+- 域名: `wsj.897654321.space`
