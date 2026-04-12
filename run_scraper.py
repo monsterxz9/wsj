@@ -4,6 +4,13 @@ WSJ Scraper 主入口
 自动抓取 WSJ 文章，翻译并生成 PDF
 """
 
+import os, sys
+# 检测是否在 venv 内运行，如果不是则自动用 venv 的 python 重新执行
+_venv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv")
+_venv_python = os.path.join(_venv_dir, "bin", "python3")
+if os.path.exists(_venv_python) and not sys.prefix.startswith(_venv_dir):
+    os.execv(_venv_python, [_venv_python] + sys.argv)
+
 import asyncio
 import argparse
 import sys
